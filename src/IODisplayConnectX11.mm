@@ -18,12 +18,14 @@
 */
 
 #include "IODisplayConnectX11.h"
+#include "IOPlatformExpertDevice.h"
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
 #include <IOKit/graphics/IOGraphicsTypes.h>
 #include <CoreFoundation/CFByteOrder.h>
 #include <dispatch/dispatch.h>
 #include <cstdio>
+#include <cstdlib>
 
 Display* IODisplayConnectX11::m_display;
 IORegistryEntry* IODisplayConnectX11::m_root;
@@ -50,13 +52,23 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 
 	dispatch_once(&once, ^{
 		m_root = new IORegistryEntry;
-		m_root->registerInPlane(kIOServicePlane, "X11Display", IORegistryEntry::root());
+		IORegistryEntry* parent = IOPlatformExpertDevice::instance();
+		if (!parent)
+			parent = IORegistryEntry::root();
+		m_root->registerInPlane(kIOServicePlane, "X11Display", parent);
 	});
 
 	if (!m_display)
 	{
 		m_display = XOpenDisplay(NULL);
-    
+		if (!m_display)
+		{
+			const char* envDisplay = getenv("DISPLAY");
+			if (envDisplay && envDisplay[0])
+				m_display = XOpenDisplay(envDisplay);
+		}
+		if (!m_display)
+			m_display = XOpenDisplay(":1");
 		if (!m_display)
 			m_display = XOpenDisplay(":0");
 		if (!m_display)
@@ -64,18 +76,27 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 	}
 
 	int eventBase, errorBase;
+	int registered = 0;
 
 	// Iterate through all outputs connected to the current screen
 	if (XRRQueryExtension(m_display, &eventBase, &errorBase))
 	{
 		XRRScreenResources *screen = XRRGetScreenResources(m_display, DefaultRootWindow(m_display));
-
+		if (!screen)
+		{
+			fprintf(stderr, "iokitd XRRGetScreenResources failed\n");
+			fflush(stderr);
+		}
+		else
+		{
 		Atom edidAtom = XInternAtom(m_display, "EDID", FALSE);
 
 		for (int i = 0; i < screen->noutput; i++)
 		{
 			bool needFakeEDID = true;
 			XRROutputInfo *oinfo = XRRGetOutputInfo(m_display, screen, screen->outputs[i]);
+			if (!oinfo)
+				continue;
 			NSMutableDictionary* props = [NSMutableDictionary dictionaryWithCapacity: 6];
 
 			NSString* name = [[NSString alloc] initWithBytes: oinfo->name
@@ -150,10 +171,37 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 			IODisplayConnectX11* ioDisplay = new IODisplayConnectX11(i, props);
 			targetServiceRegistry->registerService(ioDisplay);
 			ioDisplay->registerInPlane(kIOServicePlane, oinfo->name, m_root);
+			registered++;
 			
 			XRRFreeOutputInfo(oinfo);
 		}
 
+		fprintf(stderr, "iokitd XRR noutput=%d registered=%d\n", screen->noutput, registered);
+		fflush(stderr);
 		XRRFreeScreenResources(screen);
+		}
+	}
+
+	if (registered == 0)
+	{
+		NSMutableDictionary* props = [NSMutableDictionary dictionaryWithCapacity: 4];
+		[props setObject: @{ @"en_US": @"X11" } forKey: @(kDisplayProductName)];
+		uint8_t fakeEDID[128];
+		memset(fakeEDID, 0, sizeof(fakeEDID));
+		memset(fakeEDID + 1, 0xff, 6);
+		fakeEDID[12] = 1;
+		uint8_t csum = 0;
+		for (size_t i = 0; i < sizeof(fakeEDID); i++)
+			csum += fakeEDID[i];
+		fakeEDID[127] = (uint8_t)((256 - csum) % 256);
+		[props setObject: [NSData dataWithBytes: fakeEDID length: sizeof(fakeEDID)]
+				forKey: @(kIODisplayEDIDKey)];
+		[props setObject: [NSNumber numberWithInt: 1]
+				forKey: @(kDisplaySerialNumber)];
+		IODisplayConnectX11* ioDisplay = new IODisplayConnectX11(0, props);
+		targetServiceRegistry->registerService(ioDisplay);
+		ioDisplay->registerInPlane(kIOServicePlane, "X11", m_root);
+		fprintf(stderr, "iokitd fallback IODisplayConnect registered\n");
+		fflush(stderr);
 	}
 }

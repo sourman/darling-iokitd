@@ -6,6 +6,8 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/IOReturn.h>
 #include <sstream>
+#include <cstdio>
+#include <os/log.h>
 #include "IOIterator.h"
 extern "C" {
 #include "iokitmigServer.h"
@@ -213,7 +215,7 @@ static mach_port_t ioRegistryCreateIterator
 	addEntries(objects, root, plane, children, options & kIORegistryIterateRecursively);
 
 	IOIterator* i = new IOIterator(objects);
-
+	i->retain();
 	i->releaseLater();
 	return i->port();
 }
@@ -324,6 +326,22 @@ kern_return_t is_io_registry_entry_get_properties_bin
     return kr;
 }
 
+kern_return_t is_io_registry_entry_get_properties_bin_buf
+(
+	mach_port_t registry_entry,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	kern_return_t kr = is_io_registry_entry_get_properties_bin(registry_entry, properties, propertiesCnt);
+	if (bufsize)
+		*bufsize = 0;
+	(void)buf;
+	return kr;
+}
+
 kern_return_t is_io_registry_entry_get_properties
 (
 	mach_port_t registry_entry,
@@ -395,6 +413,12 @@ kern_return_t is_io_registry_entry_from_path
 {
 	*registry_entry = 0;
 
+	os_log(OS_LOG_DEFAULT, "from_path %s", path);
+	if (FILE* f = fopen("/tmp/iokitd-power.log", "a")) {
+		fprintf(f, "from_path %s\n", path);
+		fclose(f);
+	}
+
 	std::vector<std::string> components;
     std::istringstream iss(path);
 
@@ -405,11 +429,17 @@ kern_return_t is_io_registry_entry_from_path
 	}
     
 	if (components.empty())
+	{
+		if (FILE* f = fopen("/tmp/iokitd-power.log", "a")) { fprintf(f, "from_path empty\n"); fclose(f); }
 		return kIOReturnBadArgument;
+	}
 	
 	std::string& planeName = components[0];
 	if (planeName[planeName.length()-1] != ':')
+	{
+		if (FILE* f = fopen("/tmp/iokitd-power.log", "a")) { fprintf(f, "from_path no colon %s\n", planeName.c_str()); fclose(f); }
 		return kIOReturnBadArgument;
+	}
 	else
 		planeName.resize(planeName.length()-1); // remove the final colon
 
@@ -429,11 +459,24 @@ kern_return_t is_io_registry_entry_from_path
 		}
 
 		if (!next)
+		{
+			if (FILE* f = fopen("/tmp/iokitd-power.log", "a")) {
+				fprintf(f, "from_path no device plane=%s want=%s nchildren=%zu at=%s\n",
+					planeName.c_str(), components[i].c_str(), children.size(), current->getName(planeName.c_str()).c_str());
+				for (IORegistryEntry* e : children)
+					fprintf(f, "  child=%s\n", e->getName(planeName.c_str()).c_str());
+				fclose(f);
+			}
 			return kIOReturnNoDevice;
+		}
 		current = next;
 	}
 
 	*registry_entry = current->port();
+	if (FILE* f = fopen("/tmp/iokitd-power.log", "a")) {
+		fprintf(f, "from_path ok class=%s port=%u\n", current->className(), *registry_entry);
+		fclose(f);
+	}
 
 	return kIOReturnSuccess;
 }
@@ -511,5 +554,24 @@ kern_return_t is_io_registry_entry_get_property_bin
 	CFRelease(data);
 
     return kr;
+}
+
+kern_return_t is_io_registry_entry_get_property_bin_buf
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_name_t property_name,
+	uint32_t options,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	kern_return_t kr = is_io_registry_entry_get_property_bin(registry_entry, plane, property_name, options, properties, propertiesCnt);
+	if (bufsize)
+		*bufsize = 0;
+	(void)buf;
+	return kr;
 }
 

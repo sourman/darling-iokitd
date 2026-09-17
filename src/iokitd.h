@@ -26,7 +26,20 @@
 #define asldebug(...) os_log_debug(OS_LOG_DEFAULT, __VA_ARGS__)
 
 void throwCFStringException(CFStringRef format, ...);
-extern mach_port_t g_masterPort, g_deathPort;
+extern mach_port_t g_masterPort, g_deathPort, g_iokitPortSet;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+// Always-reply interest/notification object. Chrome parks if this MIG is silent.
+kern_return_t iokitd_make_interest_notification(mach_port_t service, const char* type,
+	mach_port_t wake_port, mach_port_t *notification);
+// After the add_interest MIG reply is sent, deliver the first
+// kIOServiceMessageNotificationType on the client's wake port.
+void iokitd_flush_interest_pings(void);
+#ifdef __cplusplus
+}
+#endif
 
 // iokitd calls only - not valid for powerd!
 extern pid_t g_iokitCurrentCallerPID;

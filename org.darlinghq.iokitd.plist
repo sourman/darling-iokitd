@@ -17,6 +17,17 @@
 	</dict>
 	<key>KeepAlive</key>
 	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/iokitd.out</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/iokitd.err</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>DISPLAY</key>
+		<string>:1</string>
+		<key>XAUTHORITY</key>
+		<string>/tmp/xauth</string>
+	</dict>
 </dict>
 </plist>
 

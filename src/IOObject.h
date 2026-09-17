@@ -21,13 +21,15 @@
 #define IOKITD_IOOBJECT_H
 #include <unordered_map>
 #include <mach/mach.h>
-#include <dispatch/dispatch.h>
 #include <memory>
 
 class IOObject
 {
 public:
 	IOObject();
+	// attachToIokitSet=false: receive right stays private (IOUserNotification).
+	// Do not put that port in g_iokitPortSet during an in-flight MIG reply.
+	explicit IOObject(bool attachToIokitSet);
 	virtual ~IOObject();
 
 	virtual const char* className() const = 0;
@@ -39,13 +41,20 @@ public:
 
 	mach_port_t port() { return m_port; }
 
+	// IOUserNotification is born off the set so COPY_SEND in the in-flight
+	// MIG reply cannot land on the same set. Attach after that reply is sent.
+	void schedulePortSetAttach();
+	static void flushPortSetAttaches();
+
 	// TODO: This should start adding a reference and all call sites should retain.
 	// At the latest when we support objects that may go away (e.g. USB devices).
 	static IOObject* lookup(mach_port_t port);
 	static boolean_t deathNotify(mach_msg_header_t *request, mach_msg_header_t *reply);
 private:
+	void initPort(bool attachToIokitSet);
+	void attachToIokitSetNow();
 	mach_port_t m_port;
-	dispatch_source_t m_dispatchSource = nullptr;
+	bool m_inPortSet;
 	static std::unordered_map<mach_port_t, IOObject*> m_objects;
 };
 

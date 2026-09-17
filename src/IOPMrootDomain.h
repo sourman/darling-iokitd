@@ -17,25 +17,22 @@
  along with Darling.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "IODisplayConnect.h"
-#import <Foundation/NSString.h>
+#ifndef IOKITD_IOPMROOTDOMAIN_H
+#define IOKITD_IOPMROOTDOMAIN_H
 
-const char* IODisplayConnect::className() const
-{
-	return "IODisplayConnect";
-}
+#include "IOService.h"
+#include "ServiceRegistry.h"
 
-NSDictionary* IODisplayConnect::matchingDictionary()
+class IOPMrootDomain : public IOService
 {
-	return @{
-		@"IOProviderClass": @"IODisplayConnect",
-		@"IOClass": @"IODisplayConnect",
-	};
-}
+public:
+	const char* className() const override;
+	NSDictionary* matchingDictionary() override;
+	NSDictionary* getProperties() override;
+	bool conformsTo(const char* className) override;
 
-bool IODisplayConnect::conformsTo(const char* className)
-{
-	if (std::strcmp(className, "IODisplay") == 0)
-		return true;
-	return IOService::conformsTo(className);
-}
+	static IOPMrootDomain* instance();
+	static void registerSelf(ServiceRegistry* targetServiceRegistry);
+};
+
+#endif

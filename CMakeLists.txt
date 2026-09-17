@@ -39,6 +39,8 @@ set(iokitd_sources
 	src/PowerAssertionsX11.mm
 	src/IOSurfaceRoot.mm
 	src/IOSurface.mm
+	src/IOPMrootDomain.mm
+	src/IOPlatformExpertDevice.mm
 	src/IOUserClient.mm
 	src/IOUserClientApple.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c

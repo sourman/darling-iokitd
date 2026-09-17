@@ -19,6 +19,8 @@
 
 #include "IOService.h"
 #import <Foundation/NSArray.h>
+#import <Foundation/NSString.h>
+#include <cstring>
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -29,17 +31,45 @@ IOService::IOService()
 
 }
 
-// https://unix.superglobalmegacorp.com/xnu/newsrc/iokit/KernelConfigTables.cpp.html
+// Client matching is not personality matching. IOServiceMatching("Foo")
+// is {IOProviderClass=Foo} and must match a service that *is* Foo
+// (conformsTo), not a service whose boot personality named Foo as provider.
 bool IOService::matches(NSDictionary* dict)
 {
-	NSDictionary* ourProps = matchingDictionary();
-
 	for (NSString* key in dict)
 	{
-		NSObject* ourProp = ourProps[key];
 		NSObject* expectedValue = dict[key];
 
-		if ([ourProp isKindOfClass:[NSArray class]])
+		if ([key isEqualToString: @"IOProviderClass"] || [key isEqualToString: @"IOClass"])
+		{
+			if (![expectedValue isKindOfClass: [NSString class]])
+				return false;
+			if (!conformsTo([(NSString*)expectedValue UTF8String]))
+				return false;
+			continue;
+		}
+
+		if ([key isEqualToString: @"IONameMatch"])
+		{
+			NSString* ourClass = [NSString stringWithUTF8String: className()];
+			NSString* ourName = [NSString stringWithUTF8String: getName().c_str()];
+			if ([expectedValue isKindOfClass: [NSArray class]])
+			{
+				NSArray* array = (NSArray*) expectedValue;
+				if (![array containsObject: ourClass] && ![array containsObject: ourName])
+					return false;
+			}
+			else if (![expectedValue isEqual: ourClass] && ![expectedValue isEqual: ourName])
+				return false;
+			continue;
+		}
+
+		NSDictionary* ourProps = matchingDictionary();
+		NSObject* ourProp = ourProps[key];
+		if (ourProp == nil)
+			ourProp = getProperties()[key];
+
+		if ([ourProp isKindOfClass: [NSArray class]])
 		{
 			NSArray* array = (NSArray*) ourProp;
 			if (![array containsObject: expectedValue])
@@ -51,15 +81,7 @@ bool IOService::matches(NSDictionary* dict)
 				return false;
 		}
 		else
-		{
-			if ([key isEqualToString: @"IONameMatch"])
-			{
-				if (![ourProps[@"IOClass"] isEqual: expectedValue])
-					return false;
-			}
-			else
-				return false;
-		}
+			return false;
 	}
 	return true;
 }

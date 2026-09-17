@@ -21,19 +21,33 @@
 #include "iokitd.h"
 #include <stdexcept>
 #include <cstring>
+#include <vector>
 #include <os/log.h>
-#include <dispatch/private.h>
+#include <mach/mach_port.h>
+#include <dispatch/dispatch.h>
 #include <IOKit/IOReturn.h>
 extern "C" {
 #include "iokitmigServer.h"
 }
 
 std::unordered_map<mach_port_t, IOObject*> IOObject::m_objects;
+static std::vector<IOObject*> g_pendingPortSetAttach;
 
 IOObject::IOObject()
 {
+	initPort(true);
+}
+
+IOObject::IOObject(bool attachToIokitSet)
+{
+	initPort(attachToIokitSet);
+}
+
+void IOObject::initPort(bool attachToIokitSet)
+{
 	auto task = mach_task_self();
 	kern_return_t kr;
+	m_inPortSet = false;
 
 	kr = mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &m_port);
 	if (kr != KERN_SUCCESS)
@@ -44,31 +58,31 @@ IOObject::IOObject()
 	if (kr != KERN_SUCCESS)
 		throw std::runtime_error("Failed to add Mach port send right");
 
-	m_dispatchSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, m_port, 0, dispatch_get_main_queue());
+	if (attachToIokitSet)
+	{
+		// Serve this receive right on the voucher-free iokit master loop.
+		// dispatch_mig_server() ORs MACH_RCV_VOUCHER (same stall as mach_msg_server).
+		if (g_iokitPortSet == MACH_PORT_NULL)
+			throw std::runtime_error("IOObject created before iokit port set");
+		kr = mach_port_move_member(task, m_port, g_iokitPortSet);
+		if (kr != KERN_SUCCESS)
+			throw std::runtime_error("Failed to add Mach port to iokit port set");
+		m_inPortSet = true;
 
-	if (!m_dispatchSource)
-		throw std::runtime_error("Failed to create dispatch source");
-
-	dispatch_source_set_event_handler(m_dispatchSource, ^{
-		dispatch_mig_server(m_dispatchSource, is_iokit_subsystem.maxsize, iokit_server);
-	});
-	dispatch_resume(m_dispatchSource);
-
-	mach_port_t	oldTargetOfNotification	= MACH_PORT_NULL;
-	kr = mach_port_request_notification(task, m_port, MACH_NOTIFY_NO_SENDERS, 1, g_deathPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldTargetOfNotification);
-	if (kr != KERN_SUCCESS)
-		throw std::runtime_error("Failed to setup MACH_NOTIFY_NO_SENDERS");
+		mach_port_t	oldTargetOfNotification	= MACH_PORT_NULL;
+		kr = mach_port_request_notification(task, m_port, MACH_NOTIFY_NO_SENDERS, 1, g_deathPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldTargetOfNotification);
+		if (kr != KERN_SUCCESS)
+			throw std::runtime_error("Failed to setup MACH_NOTIFY_NO_SENDERS");
+	}
 
 	m_objects.insert(std::make_pair(m_port, this));
 }
 
 IOObject::~IOObject()
 {
-	if (m_dispatchSource)
-		dispatch_release(m_dispatchSource);
-
 	m_objects.erase(m_port);
-
+	if (m_inPortSet && g_iokitPortSet != MACH_PORT_NULL)
+		mach_port_move_member(mach_task_self(), m_port, MACH_PORT_NULL);
 	mach_port_deallocate(mach_task_self(), m_port);
 }
 
@@ -85,6 +99,32 @@ void IOObject::release()
 void IOObject::releaseLater()
 {
 	dispatch_async(dispatch_get_main_queue(), ^{ release(); });
+}
+
+void IOObject::attachToIokitSetNow()
+{
+	if (m_inPortSet || g_iokitPortSet == MACH_PORT_NULL || m_port == MACH_PORT_NULL)
+		return;
+	kern_return_t kr = mach_port_move_member(mach_task_self(), m_port, g_iokitPortSet);
+	if (kr == KERN_SUCCESS)
+		m_inPortSet = true;
+	else
+		os_log_error(OS_LOG_DEFAULT, "attachToIokitSetNow port=0x%x kr=%d", m_port, kr);
+}
+
+void IOObject::schedulePortSetAttach()
+{
+	g_pendingPortSetAttach.push_back(this);
+}
+
+void IOObject::flushPortSetAttaches()
+{
+	for (IOObject* obj : g_pendingPortSetAttach)
+	{
+		if (obj)
+			obj->attachToIokitSetNow();
+	}
+	g_pendingPortSetAttach.clear();
 }
 
 IOObject* IOObject::lookup(mach_port_t port)

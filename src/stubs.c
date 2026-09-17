@@ -1,4 +1,5 @@
 #include "iokitmigServer.h"
+#include "iokitd.h"
 #include <os/log.h>
 
 #define STUB() os_log(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__); printf("STUB called: %s\n", __FUNCTION__)
@@ -321,22 +322,10 @@ kern_return_t is_io_service_add_notification
 	mach_port_t *notification
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_add_interest_notification
-(
-	mach_port_t service,
-	io_name_t type_of_interest,
-	mach_port_t wake_port,
-	io_async_ref_t reference,
-	mach_msg_type_number_t referenceCnt,
-	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)matching;
+	(void)reference;
+	(void)referenceCnt;
+	return iokitd_make_interest_notification(master_port, notification_type, wake_port, notification);
 }
 
 kern_return_t is_io_service_acknowledge_notification
@@ -413,8 +402,13 @@ kern_return_t is_io_service_add_notification_ool
 	mach_port_t *notification
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)matching;
+	(void)matchingCnt;
+	(void)reference;
+	(void)referenceCnt;
+	if (result)
+		*result = KERN_SUCCESS;
+	return iokitd_make_interest_notification(master_port, notification_type, wake_port, notification);
 }
 
 kern_return_t is_io_object_get_superclass
@@ -433,22 +427,6 @@ kern_return_t is_io_object_get_bundle_identifier
 	mach_port_t master_port,
 	io_name_t obj_name,
 	io_name_t class_name
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_open_extended
-(
-	mach_port_t service,
-	task_t owningTask,
-	uint32_t connect_type,
-	NDR_record_t ndr,
-	io_buf_ptr_t properties,
-	mach_msg_type_number_t propertiesCnt,
-	kern_return_t *result,
-	mach_port_t *connection
 )
 {
     STUB();
@@ -529,22 +507,10 @@ kern_return_t is_io_service_add_notification_64
 	mach_port_t *notification
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_add_interest_notification_64
-(
-	mach_port_t service,
-	io_name_t type_of_interest,
-	mach_port_t wake_port,
-	io_async_ref64_t reference,
-	mach_msg_type_number_t referenceCnt,
-	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)matching;
+	(void)reference;
+	(void)referenceCnt;
+	return iokitd_make_interest_notification(master_port, notification_type, wake_port, notification);
 }
 
 kern_return_t is_io_service_add_notification_ool_64
@@ -560,8 +526,13 @@ kern_return_t is_io_service_add_notification_ool_64
 	mach_port_t *notification
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)matching;
+	(void)matchingCnt;
+	(void)reference;
+	(void)referenceCnt;
+	if (result)
+		*result = KERN_SUCCESS;
+	return iokitd_make_interest_notification(master_port, notification_type, wake_port, notification);
 }
 
 kern_return_t is_io_connect_method_var_output
@@ -597,19 +568,6 @@ kern_return_t is_io_service_get_matching_service
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_service_get_matching_service_ool
-(
-	mach_port_t master_port,
-	io_buf_ptr_t matching,
-	mach_msg_type_number_t matchingCnt,
-	kern_return_t *result,
-	mach_port_t *service
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_get_authorization_id
 (
 	mach_port_t service,
@@ -637,22 +595,12 @@ kern_return_t is_io_server_version
 	uint64_t *version
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)master_port;
+	if (version)
+		*version = 20160503ull;
+	return KERN_SUCCESS;
 }
 
-
-kern_return_t is_io_service_get_matching_service_bin
-(
-	mach_port_t master_port,
-	io_struct_inband_t matching,
-	mach_msg_type_number_t matchingCnt,
-	mach_port_t *service
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
 
 kern_return_t is_io_service_match_property_table_bin
 (
@@ -678,8 +626,11 @@ kern_return_t is_io_service_add_notification_bin
 	mach_port_t *notification
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)matching;
+	(void)matchingCnt;
+	(void)reference;
+	(void)referenceCnt;
+	return iokitd_make_interest_notification(master_port, notification_type, wake_port, notification);
 }
 
 kern_return_t is_io_service_add_notification_bin_64
@@ -694,8 +645,11 @@ kern_return_t is_io_service_add_notification_bin_64
 	mach_port_t *notification
 )
 {
-    STUB();
-    return KERN_NOT_SUPPORTED;
+	(void)matching;
+	(void)matchingCnt;
+	(void)reference;
+	(void)referenceCnt;
+	return iokitd_make_interest_notification(master_port, notification_type, wake_port, notification);
 }
 
 kern_return_t is_io_registry_entry_from_path_ool
@@ -736,31 +690,3 @@ kern_return_t is_io_device_tree_entry_exists_with_name
 	return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_properties_bin_buf
-(
-	mach_port_t registry_entry,
-	mach_vm_address_t buf,
-	mach_vm_size_t *bufsize,
-	io_buf_ptr_t *properties,
-	mach_msg_type_number_t *propertiesCnt
-)
-{
-	STUB();
-	return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_property_bin_buf
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	io_name_t property_name,
-	uint32_t options,
-	mach_vm_address_t buf,
-	mach_vm_size_t *bufsize,
-	io_buf_ptr_t *properties,
-	mach_msg_type_number_t *propertiesCnt
-)
-{
-	STUB();
-	return KERN_NOT_SUPPORTED;
-}
