@@ -35,6 +35,13 @@ static NSData* deviceTreeCString(const char* value)
 	return [NSData dataWithBytes: value length: strlen(value) + 1];
 }
 
+static NSData* pciU32(uint32_t value)
+{
+	// IOPCIFamily publishes vendor-id / device-id as OSData of 4 bytes.
+	// Chromium gpu_info_collector_mac reads them with CFDataGetBytePtr.
+	return [NSData dataWithBytes: &value length: sizeof(value)];
+}
+
 const char* IOPlatformExpertDevice::className() const
 {
 	return "IOPlatformExpertDevice";
@@ -190,6 +197,23 @@ void publishChromeIOKitServices(ServiceRegistry* targetServiceRegistry)
 
 	publishNamedService(targetServiceRegistry, "IOAccelerator", parent, nil);
 	publishNamedService(targetServiceRegistry, "AppleBacklightDisplay", parent, nil);
+
+	NSDictionary* graphicsAccelProps = @{
+		@"IOClass": @"IOGraphicsAccelerator2",
+		@"IOName": @"IOGraphicsAccelerator2",
+		@"name": @"IOGraphicsAccelerator2",
+		@"model": deviceTreeCString("Mesa"),
+		@"IOGLBundleName": @"",
+		@"vendor-id": pciU32(0x1002),
+		@"device-id": pciU32(0x15e7),
+		@"class-code": pciU32(0x030000),
+		@"revision-id": pciU32(0),
+		@"subsystem-vendor-id": pciU32(0x1002),
+		@"subsystem-id": pciU32(0),
+	};
+	fprintf(stderr, "iokit_pci_id_cfdata_v1 IOGraphicsAccelerator2 vendor-id=OSData\n");
+	fflush(stderr);
+	publishNamedService(targetServiceRegistry, "IOGraphicsAccelerator2", parent, graphicsAccelProps);
 
 	// Empty live nub. Chromium matches AppleSMC; a null port is not fatal
 	// but a live one lets matching complete the same way as IOPMPowerSource.

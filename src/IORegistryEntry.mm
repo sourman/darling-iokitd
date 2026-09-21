@@ -481,18 +481,18 @@ kern_return_t is_io_registry_entry_from_path
 	return kIOReturnSuccess;
 }
 
-static NSDictionary* findKey(IORegistryEntry* e, const char* plane, NSString* key)
+static id findKeyValue(IORegistryEntry* e, const char* plane, NSString* key)
 {
 	NSDictionary* props = e->getProperties();
 	id value = [props objectForKey: key];
 
 	if (value != nil)
-		return @{ key: value };
+		return value;
 	
 	auto set = e->getChildren(plane);
 	for (IORegistryEntry* c : set)
 	{
-		NSDictionary* rv = findKey(c, plane, key);
+		id rv = findKeyValue(c, plane, key);
 		if (rv != nil)
 			return rv;
 	}
@@ -514,42 +514,47 @@ kern_return_t is_io_registry_entry_get_property_bin
 	if (!e)
 		return kIOReturnBadArgument;
 
-	// TODO: compare property_name against kIORegistryEntryPropertyKeysKey, but IOKitUser doesn't seem to use it
-
 	*propertiesCnt = 0;
 	*properties = nullptr;
 
-	NSDictionary* retval;
-
 	NSString* propName = [NSString stringWithUTF8String: property_name];
+	id value = nil;
 
 	if ((options & kIORegistryIterateRecursively) && plane[0])
-	{
-		// Recursive search for the property
-		auto set = e->getChildren(plane);
-		retval = findKey(e, plane, propName);
-
-		if (!retval)
-			return kIOReturnError; // TODO: or another code?
-	}
+		value = findKeyValue(e, plane, propName);
 	else
 	{
 		NSDictionary* props = e->getProperties();
-		
-		id value = [props objectForKey: propName];
-
-		if (!value)
-			return kIOReturnError; // TODO: or another code?
-
-		retval = @{ propName: value };
+		value = [props objectForKey: propName];
 	}
 
-	CFDataRef data = IOCFSerialize(retval, kIOCFSerializeToBinary);
+	// XNU serializes the property object itself, not {name: value}.
+	if (!value)
+	{
+		fprintf(stderr, "iokitd get_property_bin name=%s class=%s NIL\n",
+			property_name, e->className());
+		fflush(stderr);
+		return kIOReturnNotFound;
+	}
+
+	CFDataRef data = IOCFSerialize((CFTypeRef)value, kIOCFSerializeToBinary);
+	if (!data)
+	{
+		fprintf(stderr, "iokitd get_property_bin name=%s serialize-fail class=%s\n",
+			property_name, e->className());
+		fflush(stderr);
+		return kIOReturnUnsupported;
+	}
+
 	*propertiesCnt = CFDataGetLength(data);
 	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, *propertiesCnt, true);
 
 	if (kr == kIOReturnSuccess)
 		memcpy(*properties, CFDataGetBytePtr(data), *propertiesCnt);
+
+	fprintf(stderr, "iokitd get_property_bin name=%s class=%s bytes=%u kr=%d\n",
+		property_name, e->className(), *propertiesCnt, kr);
+	fflush(stderr);
 
 	CFRelease(data);
 

@@ -383,7 +383,16 @@ is_io_connect_method
 	//CHECK( IOUserClient, connection, client );
 	IOUserClient* client = dynamic_cast<IOUserClient*>(IOObject::lookup(connection));
 	if (!client)
+	{
+		fprintf(stderr, "iokitd connect_method conn=0x%x selector=%u NIL_CLIENT\n",
+			connection, selector);
+		fflush(stderr);
 		return kIOReturnBadArgument;
+	}
+
+	fprintf(stderr, "iokitd connect_method conn=0x%x class=%s selector=%u in=%u/%u\n",
+		connection, client->className(), selector, scalar_inputCnt, inband_inputCnt);
+	fflush(stderr);
 
 	IOExternalMethodArguments args;
 	IOReturn ret;
@@ -441,6 +450,9 @@ is_io_connect_method
 	*scalar_outputCnt = args.scalarOutputCount;
 	*inband_outputCnt = args.structureOutputSize;
 	*ool_output_size  = args.structureOutputDescriptorSize;
+
+	fprintf(stderr, "iokitd connect_method selector=%u ret=0x%x\n", selector, ret);
+	fflush(stderr);
 
 	/*if (inputMD) {
 		inputMD->release();

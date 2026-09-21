@@ -72,6 +72,10 @@ void ServiceRegistry::registerService(IOService* service)
 	m_registeredServices.push_back(service);
 }
 
+static void matchingLog(const char* fmt, ...);
+static void logMatchingBlob(const char* matching, mach_msg_type_number_t matchingCnt);
+static void logMatchingDict(CFTypeRef criteria);
+
 kern_return_t is_io_service_get_matching_services_ool
 (
 	mach_port_t master_port,
@@ -93,37 +97,43 @@ kern_return_t is_io_service_get_matching_services_bin
 	mach_port_t *existing
 )
 {
+	matchingLog("iokitd matching_services_bin enter cnt=%u\n", matchingCnt);
+	logMatchingBlob(matching, matchingCnt);
+	*existing = MACH_PORT_NULL;
+
 	CFStringRef errorString = nullptr;
-	try
+	CFTypeRef criteria = IOCFUnserializeBinary(matching, matchingCnt, nullptr, 0, &errorString);
+	if (!criteria)
 	{
-		CFTypeRef criteria = IOCFUnserializeBinary(matching, matchingCnt, nullptr, 0, &errorString);
-
-		if (!criteria)
-			throwCFStringException(CFSTR("io_service_get_matching_services_bin(): cannot parse 'matching': %@"), errorString);
-		
-		if (CFGetTypeID(criteria) != CFDictionaryGetTypeID())
-			throw std::runtime_error("io_service_get_matching_services_bin(): dictionary expected");
-
-		// Criteria example:
-		// IOProviderClass -> IODisplayConnect
-		IOIterator* iterator = ServiceRegistry::instance()->iteratorForMatchingServices((NSDictionary*) criteria);
-		CFShow(criteria);
-		CFRelease(criteria);
-
-		*existing = iterator->port();
-		iterator->retain();
-		iterator->releaseLater();
-
-		return kIOReturnSuccess;
-	}
-	catch (const std::exception& e)
-	{
-		os_log_error(OS_LOG_DEFAULT, "is_io_service_get_matching_services_bin: %s", e.what());
+		matchingLog("iokitd matching_services_bin unserialize failed\n");
 		if (errorString)
 			CFRelease(errorString);
-
-		return kIOReturnBadArgument;
+		IOIterator* empty = new IOIterator(std::vector<IOObject*>());
+		*existing = empty->port();
+		empty->retain();
+		empty->releaseLater();
+		return kIOReturnSuccess;
 	}
+
+	if (CFGetTypeID(criteria) != CFDictionaryGetTypeID())
+	{
+		CFRelease(criteria);
+		IOIterator* empty = new IOIterator(std::vector<IOObject*>());
+		*existing = empty->port();
+		empty->retain();
+		empty->releaseLater();
+		return kIOReturnSuccess;
+	}
+
+	logMatchingDict(criteria);
+	IOIterator* iterator = ServiceRegistry::instance()->iteratorForMatchingServices((NSDictionary*) criteria);
+	CFRelease(criteria);
+
+	*existing = iterator->port();
+	iterator->retain();
+	iterator->releaseLater();
+	matchingLog("iokitd matching_services_bin iter=0x%x\n", *existing);
+	return kIOReturnSuccess;
 }
 
 static void matchingLog(const char* fmt, ...)
